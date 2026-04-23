@@ -17,11 +17,15 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
     
     // For each key-value pair up to index i
     for (size_t j = 0; j <= i; ++j) {
-      // Copy K[j] to SRAM for computation
+      // Move K[j] to SRAM and copy it
+      gpu_sim.MoveMatrixToSharedMem(keys[j]);
       Matrix* k_copy = matrix_memory_allocator.Allocate("k_copy");
       gpu_sim.Copy(keys[j], k_copy, kInSharedMemory);
       
-      // Transpose K[j] to get K[j]^T
+      // Move K[j] back to HBM
+      gpu_sim.MoveMatrixToGpuHbm(keys[j]);
+      
+      // Transpose the copy
       gpu_sim.Transpose(k_copy, kInSharedMemory);
       
       // Compute QK^T: Q is [i+1, d], K[j]^T is [d, 1], result is [i+1, 1]
@@ -46,9 +50,13 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
       gpu_sim.ReleaseMatrix(exp_qk);
       gpu_sim.ReleaseMatrix(sum_exp);
       
-      // Copy V[j] to SRAM
+      // Move V[j] to SRAM and copy it
+      gpu_sim.MoveMatrixToSharedMem(values[j]);
       Matrix* v_copy = matrix_memory_allocator.Allocate("v_copy");
       gpu_sim.Copy(values[j], v_copy, kInSharedMemory);
+      
+      // Move V[j] back to HBM
+      gpu_sim.MoveMatrixToGpuHbm(values[j]);
       
       // Compute attention output: softmax_result * V[j]
       // softmax_result is [i+1, 1], V[j] is [1, d], result is [i+1, d]
