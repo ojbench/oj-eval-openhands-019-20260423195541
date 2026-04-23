@@ -17,21 +17,19 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
     
     // For each key-value pair up to index i
     for (size_t j = 0; j <= i; ++j) {
-      // Move K[j] to SRAM for computation
-      gpu_sim.MoveMatrixToSharedMem(keys[j]);
+      // Copy K[j] to SRAM for computation
+      Matrix* k_copy = matrix_memory_allocator.Allocate("k_copy");
+      gpu_sim.Copy(keys[j], k_copy, kInSharedMemory);
       
       // Transpose K[j] to get K[j]^T
-      gpu_sim.Transpose(keys[j], kInSharedMemory);
+      gpu_sim.Transpose(k_copy, kInSharedMemory);
       
       // Compute QK^T: Q is [i+1, d], K[j]^T is [d, 1], result is [i+1, 1]
       Matrix* qk = matrix_memory_allocator.Allocate("qk");
-      gpu_sim.MatMul(current_query, keys[j], qk);
+      gpu_sim.MatMul(current_query, k_copy, qk);
       
-      // Transpose K[j] back to original form
-      gpu_sim.Transpose(keys[j], kInSharedMemory);
-      
-      // Move K[j] back to HBM to save SRAM
-      gpu_sim.MoveMatrixToGpuHbm(keys[j]);
+      // Release k_copy
+      gpu_sim.ReleaseMatrix(k_copy);
       
       // Apply Softmax: exp(qk) / sum(exp(qk))
       Matrix* exp_qk = matrix_memory_allocator.Allocate("exp_qk");
@@ -48,19 +46,18 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
       gpu_sim.ReleaseMatrix(exp_qk);
       gpu_sim.ReleaseMatrix(sum_exp);
       
-      // Move V[j] to SRAM
-      gpu_sim.MoveMatrixToSharedMem(values[j]);
+      // Copy V[j] to SRAM
+      Matrix* v_copy = matrix_memory_allocator.Allocate("v_copy");
+      gpu_sim.Copy(values[j], v_copy, kInSharedMemory);
       
       // Compute attention output: softmax_result * V[j]
       // softmax_result is [i+1, 1], V[j] is [1, d], result is [i+1, d]
       Matrix* attention_output = matrix_memory_allocator.Allocate("attention_output");
-      gpu_sim.MatMul(softmax_result, values[j], attention_output);
+      gpu_sim.MatMul(softmax_result, v_copy, attention_output);
       
-      // Release softmax_result
+      // Release intermediate matrices
       gpu_sim.ReleaseMatrix(softmax_result);
-      
-      // Move V[j] back to HBM
-      gpu_sim.MoveMatrixToGpuHbm(values[j]);
+      gpu_sim.ReleaseMatrix(v_copy);
       
       // Sum with previous results
       if (sum_result == nullptr) {
