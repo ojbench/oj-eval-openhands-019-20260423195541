@@ -13,8 +13,7 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
     gpu_sim.MoveMatrixToSharedMem(current_query);
     
     // Allocate result matrix for summing all attention outputs
-    Matrix* sum_result = matrix_memory_allocator.Allocate("sum_result");
-    bool first_iteration = true;
+    Matrix* sum_result = nullptr;
     
     // For each key-value pair up to index i
     for (size_t j = 0; j <= i; ++j) {
@@ -64,18 +63,15 @@ void Calculate(std::vector<Matrix *> keys, std::vector<Matrix *> values,
       gpu_sim.MoveMatrixToGpuHbm(values[j]);
       
       // Sum with previous results
-      if (first_iteration) {
-        gpu_sim.Copy(attention_output, sum_result, kInSharedMemory);
-        first_iteration = false;
+      if (sum_result == nullptr) {
+        sum_result = attention_output;
       } else {
-        Matrix* temp_sum = matrix_memory_allocator.Allocate("temp_sum");
-        gpu_sim.MatAdd(sum_result, attention_output, temp_sum);
-        gpu_sim.Copy(temp_sum, sum_result, kInSharedMemory);
-        gpu_sim.ReleaseMatrix(temp_sum);
+        Matrix* new_sum = matrix_memory_allocator.Allocate("new_sum");
+        gpu_sim.MatAdd(sum_result, attention_output, new_sum);
+        gpu_sim.ReleaseMatrix(sum_result);
+        gpu_sim.ReleaseMatrix(attention_output);
+        sum_result = new_sum;
       }
-      
-      // Release attention_output
-      gpu_sim.ReleaseMatrix(attention_output);
     }
     
     // Move Q back to HBM
